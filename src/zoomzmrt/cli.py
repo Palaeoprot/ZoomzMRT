@@ -164,15 +164,43 @@ def run_pipeline(
         extra_metadata=extra_meta,
     )
 
+    # Compute high-resolution PQI and deamidation metrics
+    from zoomzmrt.deamidation import compute_high_res_deamidation, deamidation_summary_to_dataframe
+
+    deam_summaries = []
+    for rec in records:
+        d_summary = compute_high_res_deamidation(
+            mz_arr=rec["mz"],
+            int_arr=rec["intensity"],
+            sample_id=rec["sample_id"],
+            dataset_id=ds_id,
+        )
+        deam_summaries.append(d_summary)
+
+    pqi_df = deamidation_summary_to_dataframe(deam_summaries)
+    pqi_csv_path = parquet_dir / "pqi_report.csv"
+    pqi_df.to_csv(pqi_csv_path, index=False)
+    print(f" PQI Report saved: {pqi_csv_path}")
+
+    # Compute high-res sidecar overrides
     shifts = [q.get("mean_ppm_shift") for q in qc_data if q.get("mean_ppm_shift") is not None]
     mean_shift = float(np.mean(shifts)) if shifts else None
     std_shift = float(np.std(shifts)) if shifts else None
+
+    # Mean PQI across dataset
+    valid_sample_pqis = [s.pqi_median for s in deam_summaries if s.pqi_median is not None]
+    dataset_pqi_median = float(np.median(valid_sample_pqis)) if valid_sample_pqis else None
 
     sidecar_overrides = {
         "instrument": [inst_display],
         "mass_analyzer_type": analyzer_type,
         "nominal_resolving_power_fwhm": nominal_res,
         "fine_isotopes_resolved": True if resolved_type in ["mrt", "fticr"] else False,
+        "pqi_glutamine_preservation": {
+            "dataset_median_pqi": dataset_pqi_median,
+            "samples_assessed": len(valid_sample_pqis),
+            "resolution_mode": "direct_baseline_resolved",
+        },
         "lockmass_calibration": {
             "applied": True if resolved_type == "mrt" else False,
             "standard_name": lockmass_name if resolved_type == "mrt" else None,
