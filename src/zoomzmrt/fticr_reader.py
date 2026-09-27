@@ -49,7 +49,7 @@ def parse_fticr_mzml(
     mz_max: float = 5000.0,
     centroid: bool = True,
     sn_threshold: float = 2.5,
-    aggregation: Literal["mean", "sum", "none"] = "mean",
+    aggregation: Literal["mean", "sum", "first", "none"] = "mean",
     source_type: str = "external",
     instrument_name: str = "Bruker solariX FT-ICR",
     nominal_resolving_power: float = 500000.0,
@@ -118,11 +118,11 @@ def parse_fticr_mzml(
             "schema_version": "0.1.0",
         }, qc
 
-    if len(all_mz_scans) == 1 or aggregation == "none":
+    if len(all_mz_scans) == 1 or aggregation in ("first", "none"):
         raw_mz = all_mz_scans[0]
         raw_int = all_int_scans[0]
     else:
-        # Multi-scan co-addition with aggregation mode
+        # Multi-scan co-addition with aggregation mode ('mean' or 'sum')
         concat_mz = np.concatenate(all_mz_scans)
         concat_int = np.concatenate(all_int_scans)
         s_idx = np.argsort(concat_mz)
@@ -131,9 +131,19 @@ def parse_fticr_mzml(
 
         if aggregation == "mean":
             # Rescale summed intensity by number of scans
-            raw_mz, raw_int = _fticr_coadd(sorted_mz, sorted_int, scale_factor=1.0 / len(all_mz_scans))
+            raw_mz, raw_int = _fticr_coadd(
+                sorted_mz,
+                sorted_int,
+                resolving_power=nominal_resolving_power,
+                scale_factor=1.0 / len(all_mz_scans),
+            )
         else:  # 'sum'
-            raw_mz, raw_int = _fticr_coadd(sorted_mz, sorted_int, scale_factor=1.0)
+            raw_mz, raw_int = _fticr_coadd(
+                sorted_mz,
+                sorted_int,
+                resolving_power=nominal_resolving_power,
+                scale_factor=1.0,
+            )
 
     # Measure actual empirical resolving power on base peak
     if len(raw_int) > 0:
@@ -185,10 +195,18 @@ def parse_fticr_mzml(
 def _fticr_coadd(
     sorted_mz: np.ndarray,
     sorted_int: np.ndarray,
-    cluster_gap_da: float = 0.0008,
+    cluster_gap_da: float | None = None,
+    resolving_power: float = 500000.0,
     scale_factor: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Co-add closely spaced multi-scan FT-ICR points preserving fine resolution."""
+    if len(sorted_mz) == 0:
+        return np.array([], dtype=np.float64), np.array([], dtype=np.float64)
+
+    if cluster_gap_da is None:
+        median_mz = float(np.median(sorted_mz))
+        cluster_gap_da = max(0.0002, (median_mz / resolving_power) * 0.4)
+
     diffs = np.diff(sorted_mz)
     split_indices = np.where(diffs > cluster_gap_da)[0] + 1
     clusters_mz = np.split(sorted_mz, split_indices)

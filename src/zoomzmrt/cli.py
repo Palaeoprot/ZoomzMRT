@@ -276,7 +276,7 @@ def main():
     parser.add_argument("--lockmass-name", type=str, default="glufib", help="Standard lockmass name (glufib, leuenk, bradykinin)")
     parser.add_argument("--lockmass-mz", type=float, default=None, help="Custom theoretical lockmass m/z")
     parser.add_argument("--sn-threshold", type=float, default=3.0, help="Signal-to-noise peak threshold")
-    parser.add_argument("--aggregation", choices=["mean", "sum", "none"], default="mean", help="Multi-scan aggregation mode for FTICR")
+    parser.add_argument("--aggregation", choices=["mean", "sum", "first", "none"], default="mean", help="Multi-scan aggregation mode for FTICR (mean, sum, first)")
     parser.add_argument("--profile", action="store_true", help="Store continuous profile rather than centroided peaks")
 
     args = parser.parse_args()

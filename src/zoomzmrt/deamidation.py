@@ -57,6 +57,7 @@ class PeptideDeamidationResult:
     ppm_error_deam: float | None = None
     deamidation_fraction: float | None = None   # % Deamidation = Area_deam / (Area_und + Area_deam)
     pqi_fraction: float | None = None           # % Undeamidated = Area_und / (Area_und + Area_deam)
+    measurement_method: str = "trapezoidal_area" # 'trapezoidal_area', 'apex_fallback', 'none'
     resolution_status: str = "not_assessed"     # 'resolved', 'partially_resolved', 'unresolved', 'not_detected'
     separation_over_fwhm: float | None = None
     c13_ratio_observed: float | None = None
@@ -104,8 +105,14 @@ def find_peak_in_window(
     int_arr: np.ndarray,
     target_mz: float,
     tolerance_da: float,
+    forbidden_mz: float | None = None,
 ) -> tuple[float | None, float, float | None]:
-    """Locate the apex of the strongest peak near target_mz within tolerance_da."""
+    """Locate the apex of the strongest peak near target_mz within tolerance_da.
+
+    If forbidden_mz is provided (e.g. adjacent isobar target separated by 19.339 mDa),
+    candidate peaks that are closer to forbidden_mz than to target_mz are rejected to
+    prevent isobaric cross-talk.
+    """
     if len(mz_arr) == 0:
         return None, 0.0, None
 
@@ -115,6 +122,15 @@ def find_peak_in_window(
 
     sub_mz = mz_arr[mask]
     sub_int = int_arr[mask]
+
+    # Filter out candidate peaks closer to competing forbidden isobar
+    if forbidden_mz is not None:
+        valid_comp = np.abs(sub_mz - target_mz) < np.abs(sub_mz - forbidden_mz)
+        if not np.any(valid_comp):
+            return None, 0.0, None
+        sub_mz = sub_mz[valid_comp]
+        sub_int = sub_int[valid_comp]
+
     best_idx = int(np.argmax(sub_int))
     
     obs_m = float(sub_mz[best_idx])
@@ -155,7 +171,7 @@ def integrate_peak(
     apex_i = float(np.max(int_win))
 
     if len(mz_win) < 2:
-        return apex_i, float(mz_win[0]), apex_i
+        return 0.0, float(mz_win[0]), apex_i
 
     if baseline_subtraction:
         baseline = float(np.min(int_win))
@@ -164,10 +180,6 @@ def integrate_peak(
         corrected = int_win
 
     area = _trapz(corrected, mz_win)
-    
-    # Fallback to apex height if trapezoidal area evaluates to 0 (e.g. baseline equals apex or centroided sparse peak)
-    if area <= 0.0:
-        area = apex_i
 
     sum_corr = float(np.sum(corrected))
     if sum_corr > 0.0:
@@ -189,6 +201,9 @@ def compute_high_res_deamidation(
     min_intensity: float = 100.0,
 ) -> SampleDeamidationSummary:
     """Directly calculate high-resolution deamidation and PQI using trapezoidal peak areas.
+
+    Enforces guarded, non-overlapping search and integration windows between adjacent
+    deamidated M0 (+0.9840 Da) and natural 13C1 M1 (+1.0034 Da) isobaric peaks.
 
     Args:
         mz_arr: Array of calibrated m/z values.
@@ -222,24 +237,34 @@ def compute_high_res_deamidation(
         target_c13 = m.target_13c_mz
         expected_c13_ratio = m.expected_13c_ratio
 
-        # Calculate resolution-aware search tolerance & integration half-width
-        tol_da = max(target_und * tolerance_ppm / 1e6, peak_half_width(target_und, resolving_power, width_factor=1.0))
-        half_width_da = peak_half_width(target_und, resolving_power, width_factor=1.5)
+        # Separation distance between adjacent isobars (~0.019339 Da)
+        separation = abs(target_c13 - target_deam)
+        max_adjacent_tol = 0.45 * separation  # ~0.0087 Da ceiling to prevent search window overlap
 
-        # 1. Locate apexes
-        obs_und_m, apex_und_i, err_und = find_peak_in_window(m_arr, i_arr, target_und, tol_da)
-        obs_deam_m, apex_deam_i, err_deam = find_peak_in_window(m_arr, i_arr, target_deam, tol_da)
-        obs_c13_m, apex_c13_i, err_c13 = find_peak_in_window(m_arr, i_arr, target_c13, tol_da)
+        # Non-overlapping search tolerances:
+        tol_und = max(target_und * tolerance_ppm / 1e6, peak_half_width(target_und, resolving_power, width_factor=1.0))
+        tol_deam = min(max(target_deam * tolerance_ppm / 1e6, peak_half_width(target_deam, resolving_power, width_factor=0.8)), max_adjacent_tol)
+        tol_c13 = min(max(target_c13 * tolerance_ppm / 1e6, peak_half_width(target_c13, resolving_power, width_factor=0.8)), max_adjacent_tol)
 
-        # 2. Integrate trapezoidal peak areas
+        # Non-overlapping integration half-widths:
+        hw_und = peak_half_width(target_und, resolving_power, width_factor=1.5)
+        hw_deam = min(peak_half_width(target_deam, resolving_power, width_factor=1.5), max_adjacent_tol)
+        hw_c13 = min(peak_half_width(target_c13, resolving_power, width_factor=1.5), max_adjacent_tol)
+
+        # 1. Locate apexes with competition-aware isobar cross-talk protection
+        obs_und_m, apex_und_i, err_und = find_peak_in_window(m_arr, i_arr, target_und, tol_und)
+        obs_deam_m, apex_deam_i, err_deam = find_peak_in_window(m_arr, i_arr, target_deam, tol_deam, forbidden_mz=target_c13)
+        obs_c13_m, apex_c13_i, err_c13 = find_peak_in_window(m_arr, i_arr, target_c13, tol_c13, forbidden_mz=target_deam)
+
+        # 2. Integrate trapezoidal peak areas with bounded non-overlapping windows
         area_und, cent_und_m, _ = integrate_peak(
-            m_arr, i_arr, obs_und_m if obs_und_m is not None else target_und, half_width_da
+            m_arr, i_arr, obs_und_m if obs_und_m is not None else target_und, hw_und
         )
         area_deam, cent_deam_m, _ = integrate_peak(
-            m_arr, i_arr, obs_deam_m if obs_deam_m is not None else target_deam, half_width_da
+            m_arr, i_arr, obs_deam_m if obs_deam_m is not None else target_deam, hw_deam
         )
         area_c13, cent_c13_m, _ = integrate_peak(
-            m_arr, i_arr, obs_c13_m if obs_c13_m is not None else target_c13, half_width_da
+            m_arr, i_arr, obs_c13_m if obs_c13_m is not None else target_c13, hw_c13
         )
 
         res = PeptideDeamidationResult(
@@ -282,18 +307,14 @@ def compute_high_res_deamidation(
         tot_area = area_und + area_deam
         tot_apex = apex_und_i + apex_deam_i
 
-        if (tot_area > 0 or tot_apex > 0) and tot_apex >= min_intensity:
-            if tot_area > 0:
-                deam_frac = area_deam / tot_area
-                pqi_frac = area_und / tot_area
-            else:
-                deam_frac = apex_deam_i / tot_apex
-                pqi_frac = apex_und_i / tot_apex
-
+        if tot_area > 0 and tot_apex >= min_intensity:
+            deam_frac = area_deam / tot_area
+            pqi_frac = area_und / tot_area
             res.deamidation_fraction = float(deam_frac)
             res.pqi_fraction = float(pqi_frac)
+            res.measurement_method = "trapezoidal_area"
 
-            # 5. Isotopic consistency QC
+            # 5. Isotopic consistency QC (13C1 / M0 ratio)
             if area_und > 0 and area_c13 > 0:
                 obs_c13_ratio = area_c13 / area_und
                 res.c13_ratio_observed = float(obs_c13_ratio)
@@ -308,7 +329,26 @@ def compute_high_res_deamidation(
             valid_pqis.append(pqi_frac)
             valid_deams.append(deam_frac)
             summary.n_markers_detected += 1
+        elif tot_apex >= min_intensity:
+            # Fallback to apex height only if integrated area is zero (sparse centroid data)
+            deam_frac = apex_deam_i / tot_apex
+            pqi_frac = apex_und_i / tot_apex
+            res.deamidation_fraction = float(deam_frac)
+            res.pqi_fraction = float(pqi_frac)
+            res.measurement_method = "apex_fallback"
+
+            # Check 13C ratio on apex intensities
+            if apex_und_i > min_intensity and apex_c13_i > 0:
+                obs_c13_ratio = apex_c13_i / apex_und_i
+                res.c13_ratio_observed = float(obs_c13_ratio)
+                if abs(obs_c13_ratio - expected_c13_ratio) / expected_c13_ratio > 0.40:
+                    res.quality_flag = "C13_RATIO_ANOMALY"
+
+            valid_pqis.append(pqi_frac)
+            valid_deams.append(deam_frac)
+            summary.n_markers_detected += 1
         else:
+            res.measurement_method = "none"
             res.quality_flag = "BELOW_INTENSITY_THRESHOLD"
 
         summary.results.append(res)
@@ -345,6 +385,7 @@ def deamidation_summary_to_dataframe(summaries: list[SampleDeamidationSummary]) 
             base[f"{m_prefix}_i_und"] = r.intensity_undeam
             base[f"{m_prefix}_i_deam"] = r.intensity_deam
             base[f"{m_prefix}_res_status"] = r.resolution_status
+            base[f"{m_prefix}_method"] = r.measurement_method
             base[f"{m_prefix}_flag"] = r.quality_flag
         rows.append(base)
     return pd.DataFrame(rows)

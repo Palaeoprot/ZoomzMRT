@@ -104,3 +104,88 @@ def test_c13_anomaly_flagging():
     summary = compute_high_res_deamidation(mzs, ints, sample_id="anomaly_sample", dataset_id="test_ds")
     p1105 = [r for r in summary.results if r.marker_name == "COL1A1_P1105"][0]
     assert p1105.quality_flag == "C13_RATIO_ANOMALY"
+
+
+@pytest.mark.parametrize("resolving_power", [100000.0, 150000.0, 250000.0, 500000.0])
+def test_high_mass_marker_2044_deamidation_no_crosstalk(resolving_power):
+    """Rigorous regression test for high-mass marker (~2044 Da).
+
+    Verifies that the 8 ppm search window does NOT overlap or cross-assign adjacent
+    deamidated M0 (2045.0161) and natural 13C1 (2045.0355) peaks separated by 19.339 mDa.
+    """
+    from zoomzmrt.isotopes import DeamidationMarker, ElementalComposition
+
+    marker_2044 = DeamidationMarker(
+        name="COL1A1_P2044",
+        gene="COL1A1",
+        sequence="GVQGPPGPAGPRGEQGPPGPPGPQGPR",
+        site="Gln",
+        theoretical_mz=2044.0321,
+    )
+
+    mz_und = 2044.0321
+    mz_deam = mz_und + 0.984016   # 2045.016116
+    mz_c13 = mz_und + 1.003355    # 2045.035455
+    separation = mz_c13 - mz_deam # 0.019339 Da
+
+    fwhm = 2044.0321 / resolving_power
+    sigma = fwhm / 2.35482
+
+    mz_grid = np.linspace(2044.00, 2045.10, 5000)
+    int_profile = np.zeros_like(mz_grid)
+
+    # True areas: Und = 20000, Deam = 10000 (33.3% deamidation, PQI = 66.7%), 13C = 19000 (95% of Und)
+    true_und_area = 20000.0
+    true_deam_area = 10000.0
+    true_c13_area = 19000.0
+
+    int_profile += (true_und_area / (sigma * np.sqrt(2 * np.pi))) * np.exp(-0.5 * ((mz_grid - mz_und) / sigma) ** 2)
+    int_profile += (true_deam_area / (sigma * np.sqrt(2 * np.pi))) * np.exp(-0.5 * ((mz_grid - mz_deam) / sigma) ** 2)
+    int_profile += (true_c13_area / (sigma * np.sqrt(2 * np.pi))) * np.exp(-0.5 * ((mz_grid - mz_c13) / sigma) ** 2)
+
+    summary = compute_high_res_deamidation(
+        mz_arr=mz_grid,
+        int_arr=int_profile,
+        sample_id="high_mass_test",
+        dataset_id="benchmark_2044",
+        markers=[marker_2044],
+        resolving_power=resolving_power,
+    )
+
+    res = summary.results[0]
+    assert res.obs_mz_deam is not None
+    assert res.obs_mz_c13_undeam is not None
+    
+    # 1. Critical assertion: At R >= 150k (MRT and FTICR), Deam and 13C peak positions are distinct
+    if resolving_power >= 150000.0:
+        assert res.obs_mz_deam != res.obs_mz_c13_undeam
+        assert abs(res.obs_mz_deam - mz_deam) < 0.003
+        assert abs(res.obs_mz_c13_undeam - mz_c13) < 0.003
+        assert res.resolution_status in ("resolved", "partially_resolved")
+    else:
+        # At R=100k, separation (19.3 mDa) < FWHM (20.4 mDa), confirming partially_resolved / unresolved status
+        assert res.resolution_status in ("partially_resolved", "unresolved")
+
+    # 2. Both areas must be positive and non-zero
+    assert res.area_undeam > 0
+    assert res.area_deam > 0
+    assert res.area_c13_undeam > 0
+    assert res.measurement_method == "trapezoidal_area"
+
+    # 3. Quantitation accuracy: at R >= 250k (MRT/FTICR), recovered PQI is accurate within 5%
+    if resolving_power >= 250000.0:
+        true_pqi = true_und_area / (true_und_area + true_deam_area) # 0.6667
+        assert abs(res.pqi_fraction - true_pqi) < 0.05
+
+
+def test_sparse_centroid_apex_fallback():
+    """Verify that sparse centroid peaks (where trapezoidal area is 0) trigger apex_fallback."""
+    mzs = [1105.5807, 1106.5647]
+    ints = [10000.0, 5000.0]
+
+    summary = compute_high_res_deamidation(mzs, ints, sample_id="sparse_sample", dataset_id="test_ds")
+    p1105 = summary.results[0]
+    assert p1105.measurement_method == "apex_fallback"
+    assert p1105.quality_flag == "OK"
+    assert abs(p1105.pqi_fraction - 0.6667) < 0.01
+

@@ -32,8 +32,38 @@ def test_fticr_multi_scan_coadd():
     sort_idx = np.argsort(all_mz)
 
     # Aggregation = mean (scale_factor = 0.5)
-    mean_mz, mean_int = _fticr_coadd(all_mz[sort_idx], all_int[sort_idx], cluster_gap_da=0.005, scale_factor=0.5)
+    mean_mz, mean_int = _fticr_coadd(
+        all_mz[sort_idx],
+        all_int[sort_idx],
+        cluster_gap_da=0.005,
+        scale_factor=0.5,
+    )
     assert len(mean_mz) == 2
     assert abs(mean_mz[0] - 1500.1005) < 0.0001
     assert abs(mean_int[0] - 1000.0) < 0.1
     assert abs(mean_int[1] - 2000.0) < 0.1
+
+    # Aggregation = sum (scale_factor = 1.0)
+    sum_mz, sum_int = _fticr_coadd(
+        all_mz[sort_idx],
+        all_int[sort_idx],
+        cluster_gap_da=0.005,
+        scale_factor=1.0,
+    )
+    assert len(sum_mz) == 2
+    assert abs(sum_int[0] - 2000.0) < 0.1
+    assert abs(sum_int[1] - 4000.0) < 0.1
+
+
+def test_fticr_adaptive_coadd_gap():
+    """Verify that adaptive cluster gap scales with resolving power."""
+    mz_arr = np.array([1500.1000, 1500.1008, 1500.2000])
+    int_arr = np.array([1000.0, 1000.0, 2000.0])
+
+    # At R = 500,000, adaptive gap ~ (1500 / 500000) * 0.4 = 0.0012 Da
+    # Points 1500.1000 and 1500.1008 (diff 0.0008 Da < 0.0012) are co-added
+    coadd_mz, coadd_int = _fticr_coadd(mz_arr, int_arr, resolving_power=500000.0, scale_factor=1.0)
+    assert len(coadd_mz) == 2
+    assert abs(coadd_mz[0] - 1500.1004) < 0.0001
+    assert abs(coadd_int[0] - 2000.0) < 0.1
+
