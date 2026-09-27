@@ -1,5 +1,7 @@
 # ZoomzMRT
-**Date & Time:** 2026-09-27 10:05:00 (+02:00)
+**Date & Time:** 2026-09-27 10:10:00 (+02:00)
+
+[![Tests & Quality Gates](https://github.com/Palaeoprot/ZoomzMRT/actions/workflows/tests.yml/badge.svg)](https://github.com/Palaeoprot/ZoomzMRT/actions/workflows/tests.yml)
 
 High-resolution MS1 ingestion and deamidation analysis for ZooMS palaeoproteomics.
 
@@ -17,23 +19,24 @@ ZoomzMRT converts mzML/mzXML mass spectrometry data from high-resolution instrum
 ZoomzMRT provides specialized processing pipelines for:
 
 - **Waters SELECT SERIES MRT (Multi-Reflecting TOF)**
+  - *Nominal capability:* 200,000–300,000+ FWHM.
   - MS1 mzML ingestion with scan-level laser shot filtering.
   - Per-scan lockmass tracking ([Glu1]-Fib, Leu-Enk, etc.) and multiplicative alignment.
   - Empirical resolving power estimation (*R* = *m* / FWHM) on reference peaks.
   - High-resolution co-addition and resolution-scaled peak centroiding.
 - **MALDI-FTICR (Bruker solariX, Thermo FTMS)**
-  - Ultra-high-resolution MS1 ingestion (*R* ≥ 500,000 FWHM).
+  - *Nominal capability:* 500,000–1,000,000+ FWHM.
   - Explicit multi-scan aggregation (`mean`, `sum`, or `none`).
   - Fine isotopic multiplet preservation (e.g. ¹³C vs ¹⁵N vs ³⁴S).
   - Accurate instrument and magnetic field metadata extraction.
 - **Collagen Deamidation & PQI Analysis**
   - Direct background-subtracted trapezoidal peak area integration (`integrate_peak`).
-  - Exploits the 19.339 mDa physical separation between deamidated *M*₀ (+0.9840 Da) and natural ¹³C₁ *M*₁ (+1.0034 Da).
+  - At a nominal resolving power of 250,000 FWHM, the 19.339 mDa separation between deamidated *M*₀ (+0.9840 Da) and natural ¹³C₁ *M*₁ (+1.0034 Da) corresponds to ~3.2–4.4 FWHM across the ZooMS *m*/*z* range (1100–1600 Da); actual separation is evaluated per spectrum.
   - Exact elemental stoichiometry isotope QC (*C*, *H*, *N*, *O*, *S*).
   - Parchment Glutamine Index (PQI) and deamidation fraction calculations across diagnostic COL1A1/COL1A2 markers.
 - **Standardized ZooMS Parquet Output**
-  - 16-column spectrum schema (`mzPeakMS-ZooMS/0.1-draft`) with ZSTD compression.
-  - Generates comprehensive JSON metadata sidecars in `experiments_metadata/`.
+  - Writes the current 16-column `mzPeakMS-ZooMS/0.1-draft` spectrum schema with ZSTD compression.
+  - Generates comprehensive JSON metadata sidecars in `experiments_metadata/` logging both nominal and measured resolving power.
   - Exports sample-level `pqi_report.csv` and acquisition-level `qc_report.csv`.
 
 ---
@@ -118,6 +121,7 @@ Logs scan-level metrics including lockmass detection rate, median ppm error, Med
 ## Python API
 
 ```python
+from pathlib import Path
 from zoomzmrt import (
     parse_waters_mrt_mzml,
     parse_fticr_mzml,
@@ -128,7 +132,7 @@ from zoomzmrt import (
 
 # 1. Parse and calibrate Waters MRT acquisition
 record, qc = parse_waters_mrt_mzml(
-    file_path="110924_h12_glufib.mzML",
+    file_path=Path("sample_data") / "110924_h12_glufib.mzML",
     dataset_id="Example_MRT",
     lockmass_mz=1570.67742,
 )
@@ -136,7 +140,7 @@ record, qc = parse_waters_mrt_mzml(
 print(f"Measured Resolving Power: {qc.measured_resolving_power:,.0f} FWHM")
 print(f"Lockmass Median Shift:    {qc.lockmass_median_ppm_error:+.2f} ppm (MAD: {qc.lockmass_mad_ppm:.2f} ppm)")
 
-# 2. Compute resolved-peak deamidation & PQI
+# 2. Compute resolved-peak deamidation & PQI using trapezoidal peak areas
 summary = compute_high_res_deamidation(
     mz_arr=record["mz"],
     int_arr=record["intensity"],
@@ -147,6 +151,25 @@ summary = compute_high_res_deamidation(
 
 print(f"Sample Median PQI: {summary.pqi_median:.3f}")
 ```
+
+---
+
+## Testing
+
+Run the test suite with:
+
+```bash
+pytest -v
+```
+
+The test suite covers:
+- True trapezoidal peak-area integration vs apex heights.
+- Physical 19.339 mDa deamidation/¹³C separation benchmarks across resolving powers from 100k to 500k.
+- Lockmass multiplicative calibration and empirical FWHM resolving power measurement.
+- Resolution-aware peak centroiding.
+- FT-ICR fine multiplet preservation and multi-scan co-addition.
+- Peptide elemental stoichiometry and theoretical isotope distributions.
+- 16-column Parquet schema validation and sidecar generation.
 
 ---
 
