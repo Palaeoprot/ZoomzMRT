@@ -200,6 +200,17 @@ The test suite covers:
 
 ---
 
+## Acknowledgements
+
+ZoomzMRT's Waters MRT workflow was built for, and follows the method of, **mzCombiner 1.0** by
+**Nick Michael** (Technical Services, University of Reading), who shared the tool and example data with us.
+The scan-level filtering and summing steps in `mrt_reader.py` (a base-peak intensity threshold per scan,
+an m/z window, a minimum point intensity, then summation of the retained scans) reimplement his approach
+independently in Python. mzCombiner's source code was not used. The lock-mass calibration, resolving-power
+measurement, peak picking and deamidation modules are additions in ZoomzMRT.
+
+---
+
 ## License
 
 ZoomzMRT is open source under the **GNU General Public License v3.0 or later** (GPL-3.0-or-later).
