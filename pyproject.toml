@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zoomzmrt"
+version = "0.1.0"
+description = "High-Resolution MS1 Ingestion Engine for Waters SELECT SERIES MRT and MALDI-FTICR Data in ZooMS Palaeoproteomics."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "Palaeoprot Community" }]
+keywords = ["mass-spectrometry", "waters-mrt", "fticr", "zooms", "palaeoproteomics", "parquet"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pandas>=2.0",
+    "pyarrow>=14.0",
+    "pyteomics>=4.6",
+    "pymzml>=2.5",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4", "ruff>=0.5"]
+
+[project.scripts]
+zoomzmrt = "zoomzmrt.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Palaeoprot/ZoomzMRT"
+Repository = "https://github.com/Palaeoprot/ZoomzMRT.git"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
