@@ -337,7 +337,7 @@ def _high_res_centroid(
                 sum_i = np.sum(cint)
                 c_mz = np.sum(cmz * cint) / sum_i
                 centroid_mzs.append(c_mz)
-                centroid_ints.append(sum_i)
+                centroid_ints.append(float(max_i))
         return np.array(centroid_mzs, dtype=np.float64), np.array(centroid_ints, dtype=np.float64)
 
     centroid_mzs = []
