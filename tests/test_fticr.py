@@ -67,3 +67,28 @@ def test_fticr_adaptive_coadd_gap():
     assert abs(coadd_mz[0] - 1500.1004) < 0.0001
     assert abs(coadd_int[0] - 2000.0) < 0.1
 
+
+def test_bruker_d_reader_on_real_data():
+    """Verify parsing a native Bruker .d folder with parse_bruker_fticr_d."""
+    from pathlib import Path
+    from zoomzmrt.fticr_reader import parse_bruker_fticr_d
+
+    test_d = Path(r"C:\Users\matth\Documents\parquet_master\_staging\zenodo_13151059\Plate 27 Acid TFA MALDI FTICR\Piage Plate 27 Acid TFA MALDI FTICR\06102022-Pauline\1.d")
+    if not test_d.exists():
+        pytest.skip("Test Bruker .d directory not found")
+
+    rec, qc = parse_bruker_fticr_d(
+        file_path=test_d,
+        dataset_id="test_fticr_dataset",
+        centroid=True,
+    )
+    assert rec["dataset_id"] == "test_fticr_dataset"
+    assert rec["sample_id"] == "1"
+    assert rec["n_peaks"] > 100
+    assert len(rec["mz"]) == rec["n_peaks"]
+    assert len(rec["intensity"]) == rec["n_peaks"]
+    assert qc.base_peak_mz > 500.0
+    assert qc.measured_resolving_power is not None
+    assert qc.measured_resolving_power > 50000.0
+
+

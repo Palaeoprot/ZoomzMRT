@@ -5,6 +5,7 @@ Command-line interface for ZoomzMRT.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import time
 from dataclasses import asdict
@@ -16,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 from zoomzmrt.deamidation import compute_high_res_deamidation, deamidation_summary_to_dataframe
-from zoomzmrt.fticr_reader import parse_fticr_mzml
+from zoomzmrt.fticr_reader import parse_bruker_fticr_d, parse_fticr_mzml
 from zoomzmrt.mrt_reader import KNOWN_LOCK_MASSES, parse_waters_mrt_mzml
 from zoomzmrt.parquet_writer import (
     dataset_id_for,
@@ -27,11 +28,18 @@ from zoomzmrt.parquet_writer import (
 DEFAULT_OUTPUT_ROOT = Path.cwd() / "output"
 
 
+def natural_sort_key(path: Path) -> list[int | str]:
+    """Sort paths with natural alphanumeric ordering (e.g. 1.d, 2.d ... 10.d)."""
+    return [int(chunk) if chunk.isdigit() else chunk.lower() for chunk in re.split(r"(\d+)", path.name)]
+
+
 def detect_instrument_type(files: Sequence[Path]) -> str:
-    """Auto-detect instrument analyzer from file stems."""
+    """Auto-detect instrument analyzer from file stems and directory types."""
     names_str = " ".join(f.name.lower() for f in files)
     if any(k in names_str for k in ["mrt", "select_series", "glufib", "efib"]):
         return "mrt"
+    if any(f.name.lower().endswith(".d") or (f.is_dir() and (f / "analysis.baf").exists()) for f in files):
+        return "fticr"
     if any(k in names_str for k in ["fticr", "solarix", "solari_x", "7t", "9.4t", "12t", "15t", "ftms"]):
         return "fticr"
     raise ValueError(
@@ -67,15 +75,23 @@ def run_pipeline(
 
     if in_path.is_file():
         files = [in_path]
+    elif in_path.is_dir() and (in_path.name.lower().endswith(".d") or (in_path / "analysis.baf").exists()):
+        files = [in_path]
     else:
         found = set()
+        # Look for standard mzML / mzXML files
         for ext in ("*.mzML", "*.mzml", "*.mzXML", "*.mzxml"):
             for p in in_path.rglob(ext):
                 found.add(p.resolve())
-        files = sorted(list(found))
+        # Look for Bruker .d directories containing analysis.baf
+        for p in in_path.rglob("*.d"):
+            if p.is_dir() and (p / "analysis.baf").exists():
+                found.add(p.resolve())
+        files = sorted(list(found), key=natural_sort_key)
 
     if not files:
-        raise ValueError(f"No .mzML or .mzXML spectral files found in {in_path}")
+        raise ValueError(f"No .mzML, .mzXML, or Bruker .d spectral files/directories found in {in_path}")
+
 
     print(f"\n=======================================================")
     print(f" ZoomzMRT High-Resolution MS1 Ingestion Engine")
@@ -141,21 +157,34 @@ def run_pipeline(
                 measured_res_list.append(qc.measured_resolving_power)
             print(f" Done ({rec['n_peaks']} peaks, shift: {qc.mean_ppm_shift:+.2f} ppm)")
         elif resolved_type == "fticr":
-            rec, qc = parse_fticr_mzml(
-                file_path=f,
-                dataset_id=ds_id,
-                centroid=centroid,
-                sn_threshold=sn_threshold,
-                aggregation=aggregation,  # type: ignore
-                source_type=source_type,
-                instrument_name=inst_display,
-                nominal_resolving_power=nominal_res,
-            )
+            if f.name.lower().endswith(".d") or (f.is_dir() and (f / "analysis.baf").exists()):
+                rec, qc = parse_bruker_fticr_d(
+                    file_path=f,
+                    dataset_id=ds_id,
+                    centroid=centroid,
+                    sn_threshold=sn_threshold,
+                    aggregation=aggregation,  # type: ignore
+                    source_type=source_type,
+                    instrument_name=inst_display,
+                    nominal_resolving_power=nominal_res,
+                )
+            else:
+                rec, qc = parse_fticr_mzml(
+                    file_path=f,
+                    dataset_id=ds_id,
+                    centroid=centroid,
+                    sn_threshold=sn_threshold,
+                    aggregation=aggregation,  # type: ignore
+                    source_type=source_type,
+                    instrument_name=inst_display,
+                    nominal_resolving_power=nominal_res,
+                )
             records.append(rec)
             qc_data.append(asdict(qc))
             if qc.measured_resolving_power:
                 measured_res_list.append(qc.measured_resolving_power)
             print(f" Done ({rec['n_peaks']} peaks, fine clusters: {qc.n_mz_gaps_3_25_mda})")
+
 
     elapsed = time.time() - t0
     print(f"\nCompleted spectral processing in {elapsed:.2f}s.")
