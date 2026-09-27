@@ -1,11 +1,11 @@
 # ZoomzMRT
-**Date & Time:** 2026-09-27 10:10:00 (+02:00)
+**Date & Time:** 2026-09-27 13:20:00 (+02:00)
 
 [![Tests & Quality Gates](https://github.com/Palaeoprot/ZoomzMRT/actions/workflows/tests.yml/badge.svg)](https://github.com/Palaeoprot/ZoomzMRT/actions/workflows/tests.yml)
 
 High-resolution MS1 ingestion and deamidation analysis for ZooMS palaeoproteomics.
 
-ZoomzMRT converts mzML/mzXML mass spectrometry data from high-resolution instruments into a standardized ZooMS Parquet representation, with instrument-specific lockmass calibration, resolution-aware peak area extraction, quality-control metrics, and direct resolved-peak deamidation measurements.
+ZoomzMRT converts mzML/mzXML mass spectrometry data and native Bruker `.d` (BAF/SQLite) directories from high-resolution instruments into a standardized ZooMS Parquet representation, with instrument-specific lockmass calibration, resolution-aware peak area extraction, quality-control metrics, and direct resolved-peak deamidation measurements.
 
 > **Status:** Beta / active development  
 > **Python:** ≥ 3.10  
@@ -26,6 +26,7 @@ ZoomzMRT provides specialized processing pipelines for:
   - High-resolution co-addition and resolution-scaled peak centroiding.
 - **MALDI-FTICR (Bruker solariX, Thermo FTMS)**
   - *Nominal capability:* 500,000–1,000,000+ FWHM.
+  - Native Bruker `.d` binary extraction via C-API `pyBaf2Sql` without external GUI conversion artifacts.
   - Explicit multi-scan aggregation (`mean`, `sum`, or `none`).
   - Fine isotopic multiplet preservation (e.g. ¹³C vs ¹⁵N vs ³⁴S).
   - Accurate instrument and magnetic field metadata extraction.
@@ -70,15 +71,17 @@ zoomzmrt path/to/mrt_mzml_dir \
     --output-root ./output
 ```
 
-### 2. MALDI-FTICR
+### 2. MALDI-FTICR (Native Bruker .d or mzML)
 ```bash
-zoomzmrt path/to/fticr_mzml_dir \
+# Ingest native Bruker .d directory or mzML files
+zoomzmrt path/to/fticr_data_dir \
     --dataset-id Raymond_2024_FTICR_Bone \
     --instrument-type fticr \
-    --instrument-name "Bruker solariX FT-ICR" \
+    --instrument-name "Bruker 9.4T solariX XR FT-ICR" \
     --aggregation mean \
     --output-root ./output
 ```
+
 
 ### 3. Continuous Profile Output
 ```bash
