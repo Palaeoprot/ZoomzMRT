@@ -158,7 +158,7 @@ def parse_waters_mrt_mzml(
     scans_intensity = []
     scan_ppm_shifts = []
 
-    with mzml.read(str(path_obj)) as reader:
+    with mzml.read(str(path_obj), huge_tree=True) as reader:
         for scan in reader:
             if scan.get("ms level") != 1:
                 continue

@@ -72,7 +72,7 @@ def parse_fticr_mzml(
     inst_header = None
     inst_status = "from_metadata"
 
-    with mzml.read(str(path_obj)) as reader:
+    with mzml.read(str(path_obj), huge_tree=True) as reader:
         for scan in reader:
             if scan.get("ms level") != 1:
                 continue
