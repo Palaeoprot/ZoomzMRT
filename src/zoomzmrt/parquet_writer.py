@@ -41,6 +41,23 @@ ZOOMS_SPECTRA = pa.schema(
 )
 
 
+def validate_spectrum_record(row: dict[str, Any]) -> None:
+    """Validate that a spectrum dictionary strictly conforms to the schema invariants."""
+    required = set(ZOOMS_SPECTRA.names)
+    missing = required - row.keys()
+    if missing:
+        raise ValueError(f"Record missing required schema fields: {sorted(missing)}")
+
+    n_peaks = row.get("n_peaks", 0)
+    mz_len = len(row.get("mz", []))
+    int_len = len(row.get("intensity", []))
+
+    if n_peaks != mz_len:
+        raise ValueError(f"n_peaks ({n_peaks}) does not match mz length ({mz_len}) for file {row.get('file_id')}")
+    if n_peaks != int_len:
+        raise ValueError(f"n_peaks ({n_peaks}) does not match intensity length ({int_len}) for file {row.get('file_id')}")
+
+
 def dataset_id_for(path_or_name: Path | str) -> str:
     """Derive a canonical dataset_id from a folder name or string."""
     name = path_or_name.name if isinstance(path_or_name, Path) else path_or_name
@@ -78,12 +95,16 @@ def write_zooms_dataset(
 
     try:
         for row in rows:
-            if row.get("dataset_id") != dataset_id:
-                row["dataset_id"] = dataset_id
-            if "schema_version" not in row or not row["schema_version"]:
-                row["schema_version"] = SCHEMA_VERSION
+            # Create a non-mutating shallow copy
+            norm_row = dict(row)
+            if norm_row.get("dataset_id") != dataset_id:
+                norm_row["dataset_id"] = dataset_id
+            if "schema_version" not in norm_row or not norm_row["schema_version"]:
+                norm_row["schema_version"] = SCHEMA_VERSION
 
-            batch.append(row)
+            validate_spectrum_record(norm_row)
+            batch.append(norm_row)
+
             if len(batch) >= batch_size:
                 table = pa.Table.from_pylist(batch, schema=schema).replace_schema_metadata(meta)
                 if writer is None:
@@ -121,7 +142,7 @@ def write_sidecar(
     parquet_path: Path,
     metadata_overrides: dict[str, Any] | None = None,
 ) -> Path:
-    """Generate or update the experiments_metadata/<dataset_id>.json sidecar."""
+    """Generate or update the experiments_metadata/<dataset_id>.json sidecar with provenance."""
     out_dir.mkdir(parents=True, exist_ok=True)
     sidecar_path = out_dir / f"{dataset_id}.json"
 
@@ -142,6 +163,11 @@ def write_sidecar(
         "instrument": instruments,
         "source_type": source_types,
         "extraction_strategy": strategies,
+        "software": {
+            "name": "zoomzmrt",
+            "version": "0.1.0",
+            "spec_version": SPEC_VERSION,
+        },
         "_metadata_source": {
             "n_files": "derived_from_parquet",
             "n_spectra_rows": "derived_from_parquet",
