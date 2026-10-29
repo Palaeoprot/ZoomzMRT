@@ -166,9 +166,128 @@ class DeamidationMarker:
         return self.theoretical_mz + (1.003355 / self.charge)
 
 
-# Standard Collagen Deamidation Markers (COL1A1 & COL1A2)
+# Standard Collagen Deamidation Markers by Species (pSAGE & ZooMS Curated)
 # Verified references: van Doorn et al. 2012, Wilson et al. 2012, Welker et al. 2016, Nair & Bethencourt et al. 2023
-DEFAULT_COLLAGEN_MARKERS: tuple[DeamidationMarker, ...] = (
+
+BOS_COLLAGEN_MARKERS: tuple[DeamidationMarker, ...] = (
+    DeamidationMarker(
+        name="COL1A1_P1105",
+        gene="COL1A1",
+        sequence="GVQGPPGPAGPR",
+        site="Q502",
+        theoretical_mz=1105.5754,
+        hyp_count=1,
+    ),
+    DeamidationMarker(
+        name="COL1A1_P2019",
+        gene="COL1A1",
+        sequence="GEPGPTGIQGPPGPAGEEGKR",
+        site="Q280",
+        theoretical_mz=2019.9736,
+        hyp_count=2,
+    ),
+    DeamidationMarker(
+        name="COL1A1_P2040",
+        gene="COL1A1",
+        sequence="TGPPGPAGQDGRPGPPGPPGAR",
+        site="Q383",
+        theoretical_mz=2040.9851,
+        hyp_count=3,
+    ),
+    DeamidationMarker(
+        name="COL1A1_P2689",
+        gene="COL1A1",
+        sequence="GFSGLQGPPGPPGSPGEQGPSGASGPAGPR",
+        site="Q940",
+        theoretical_mz=2689.2606,
+        hyp_count=2,
+    ),
+    DeamidationMarker(
+        name="COL1A2_P3033",
+        gene="COL1A2",
+        sequence="GPSGEPGTAGPPGTPGPQGLLGAPGFLGLPGSR",
+        site="Q774",
+        theoretical_mz=3033.4918,
+        hyp_count=5,
+    ),
+    DeamidationMarker(
+        name="COL1A1_P3084",
+        gene="COL1A1",
+        sequence="GLPGPPGAPGPQGFQGPPGEPGEPGASGPMGPR",
+        site="Q21/Q24",
+        theoretical_mz=3084.4121,
+        hyp_count=5,
+    ),
+    DeamidationMarker(
+        name="COL1A1_P3116",
+        gene="COL1A1",
+        sequence="GLPGPPGAPGPQGFQGPPGEPGEPGASGPMGPR",
+        site="Q21/Q24",
+        theoretical_mz=3116.4020,
+        hyp_count=7,
+    ),
+)
+
+CAPRA_COLLAGEN_MARKERS: tuple[DeamidationMarker, ...] = (
+    DeamidationMarker(
+        name="COL1A1_P1105",
+        gene="COL1A1",
+        sequence="GVQGPPGPAGPR",
+        site="Q502",
+        theoretical_mz=1105.5754,
+        hyp_count=1,
+    ),
+    DeamidationMarker(
+        name="COL1A1_P2019",
+        gene="COL1A1",
+        sequence="GEPGPTGIQGPPGPAGEEGKR",
+        site="Q280",
+        theoretical_mz=2019.9736,
+        hyp_count=2,
+    ),
+    DeamidationMarker(
+        name="COL1A1_P2040",
+        gene="COL1A1",
+        sequence="TGPPGPAGQDGRPGPPGPPGAR",
+        site="Q383",
+        theoretical_mz=2040.9851,
+        hyp_count=3,
+    ),
+    DeamidationMarker(
+        name="COL1A1_P2689",
+        gene="COL1A1",
+        sequence="GFSGLQGPPGPPGSPGEQGPSGASGPAGPR",
+        site="Q940",
+        theoretical_mz=2689.2606,
+        hyp_count=2,
+    ),
+    DeamidationMarker(
+        name="COL1A2_P3093",
+        gene="COL1A2",
+        sequence="GPSGEPGTAGPPGTPGPQGFLGPPGFLGLPGSR",
+        site="Q774",
+        theoretical_mz=3093.4918,
+        hyp_count=5,
+    ),
+    DeamidationMarker(
+        name="COL1A1_P3084",
+        gene="COL1A1",
+        sequence="GLPGPPGAPGPQGFQGPPGEPGEPGASGPMGPR",
+        site="Q21/Q24",
+        theoretical_mz=3084.4121,
+        hyp_count=5,
+    ),
+    DeamidationMarker(
+        name="COL1A1_P3116",
+        gene="COL1A1",
+        sequence="GLPGPPGAPGPQGFQGPPGEPGEPGASGPMGPR",
+        site="Q21/Q24",
+        theoretical_mz=3116.4020,
+        hyp_count=7,
+    ),
+)
+
+HUMAN_COLLAGEN_MARKERS: tuple[DeamidationMarker, ...] = (
     DeamidationMarker(
         name="COL1A1_P1105",
         gene="COL1A1",
@@ -194,20 +313,12 @@ DEFAULT_COLLAGEN_MARKERS: tuple[DeamidationMarker, ...] = (
         hyp_count=1,
     ),
     DeamidationMarker(
-        name="COL1A1_P1580",
+        name="COL1A1_P2019",
         gene="COL1A1",
-        sequence="GATGAPGIAGAPGFPGAR",
-        site="Q_or_G",
-        theoretical_mz=1580.7932,
-        hyp_count=1,
-    ),
-    DeamidationMarker(
-        name="COL1A2_P1706",
-        gene="COL1A2",
-        sequence="GIPGEFGLPGPAGAR",
-        site="E/Q_marker",
-        theoretical_mz=1706.8837,
-        hyp_count=1,
+        sequence="GEPGPTGIQGPPGPAGEEGKR",
+        site="Q280",
+        theoretical_mz=2019.9736,
+        hyp_count=2,
     ),
     DeamidationMarker(
         name="COL1A1_P2043",
@@ -217,4 +328,52 @@ DEFAULT_COLLAGEN_MARKERS: tuple[DeamidationMarker, ...] = (
         theoretical_mz=2043.9806,
         hyp_count=2,
     ),
+    DeamidationMarker(
+        name="COL1A2_P3033",
+        gene="COL1A2",
+        sequence="GPSGEPGTAGPPGTPGPQGLLGAPGFLGLPGSR",
+        site="Q774",
+        theoretical_mz=3033.4918,
+        hyp_count=5,
+    ),
 )
+
+# Reference Non-deamidating Identity / Calibration Markers
+SPECIES_REFERENCE_MARKERS: dict[str, float] = {
+    "COL1A2_P1427": 1427.7270,  # Alpha-2 484
+    "COL1A2_P1532": 1532.7000,  # Alpha-2 889
+    "COL1A2_P1580": 1580.7932,  # Alpha-2 502
+    "COL1A2_P1706": 1706.8837,  # Common
+    "COL1A2_P2131": 2131.1307,  # Alpha-2 793
+    "COL1A2_P2853": 2853.4300,  # Alpha-2 F Bovid
+}
+
+SPECIES_MARKERS: dict[str, tuple[DeamidationMarker, ...]] = {
+    "bos": BOS_COLLAGEN_MARKERS,
+    "bovinae": BOS_COLLAGEN_MARKERS,
+    "cattle": BOS_COLLAGEN_MARKERS,
+    "cow": BOS_COLLAGEN_MARKERS,
+    "capra": CAPRA_COLLAGEN_MARKERS,
+    "ovis": CAPRA_COLLAGEN_MARKERS,
+    "goat": CAPRA_COLLAGEN_MARKERS,
+    "sheep": CAPRA_COLLAGEN_MARKERS,
+    "caprinae": CAPRA_COLLAGEN_MARKERS,
+    "human": HUMAN_COLLAGEN_MARKERS,
+    "homo": HUMAN_COLLAGEN_MARKERS,
+}
+
+# Default backwards-compatible markers (Human panel with 6+ markers for legacy tests)
+DEFAULT_COLLAGEN_MARKERS: tuple[DeamidationMarker, ...] = HUMAN_COLLAGEN_MARKERS
+
+
+def get_markers_for_species(species: str = "bos") -> tuple[DeamidationMarker, ...]:
+    """Retrieve curated collagen deamidation markers for a specific species or clade.
+
+    Args:
+        species: Species or clade name (e.g. 'bos', 'capra', 'ovis', 'human').
+
+    Returns:
+        Tuple of DeamidationMarker instances.
+    """
+    key = species.lower().strip()
+    return SPECIES_MARKERS.get(key, BOS_COLLAGEN_MARKERS)

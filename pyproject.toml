@@ -40,6 +40,7 @@ dev = [
 
 [project.scripts]
 zoomzmrt = "zoomzmrt.cli:main"
+zoomzmrt-dashboard = "zoomzmrt.dashboard:main"
 
 [project.urls]
 Homepage = "https://github.com/Palaeoprot/ZoomzMRT"

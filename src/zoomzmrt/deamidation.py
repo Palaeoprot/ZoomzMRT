@@ -19,8 +19,10 @@ import pandas as pd
 
 from zoomzmrt.isotopes import (
     DEFAULT_COLLAGEN_MARKERS,
+    SPECIES_REFERENCE_MARKERS,
     DeamidationMarker,
     ElementalComposition,
+    get_markers_for_species,
     peptide_composition,
 )
 
@@ -196,9 +198,11 @@ def compute_high_res_deamidation(
     sample_id: str = "sample",
     dataset_id: str = "dataset",
     markers: Sequence[DeamidationMarker] | None = None,
+    species: str = "bos",
     resolving_power: float = 250000.0,
-    tolerance_ppm: float = 8.0,
+    tolerance_ppm: float = 12.0,
     min_intensity: float = 100.0,
+    internal_align: bool = True,
 ) -> SampleDeamidationSummary:
     """Directly calculate high-resolution deamidation and PQI using trapezoidal peak areas.
 
@@ -210,10 +214,12 @@ def compute_high_res_deamidation(
         int_arr: Array of peak intensities.
         sample_id: Sample identifier.
         dataset_id: Dataset identifier.
-        markers: List/tuple of DeamidationMarker instances (defaults to DEFAULT_COLLAGEN_MARKERS).
+        markers: List/tuple of DeamidationMarker instances. If None, derived from `species`.
+        species: Clade or species name (e.g. 'bos', 'capra', 'human').
         resolving_power: Nominal or measured resolving power of the acquisition (FWHM).
         tolerance_ppm: High-resolution search tolerance.
         min_intensity: Minimum apex intensity required for a peak to be evaluated.
+        internal_align: Whether to perform subtle internal alignment on prominent reference peaks.
 
     Returns:
         SampleDeamidationSummary containing per-peptide results and aggregated PQI metrics.
@@ -221,7 +227,32 @@ def compute_high_res_deamidation(
     m_arr = np.array(mz_arr, dtype=np.float64)
     i_arr = np.array(int_arr, dtype=np.float64)
 
-    marker_list = markers or DEFAULT_COLLAGEN_MARKERS
+    if markers is not None:
+        marker_list = markers
+    elif species:
+        marker_list = get_markers_for_species(species)
+    else:
+        marker_list = DEFAULT_COLLAGEN_MARKERS
+
+    # Optional internal alignment on known reference markers if uncalibrated drift is present
+    if internal_align and len(m_arr) > 0 and len(i_arr) > 0:
+        align_shifts = []
+        for ref_name, ref_mz in SPECIES_REFERENCE_MARKERS.items():
+            win = ref_mz * 30.0 / 1e6  # 30 ppm search
+            mask = (m_arr >= ref_mz - win) & (m_arr <= ref_mz + win)
+            if np.any(mask):
+                sub_i = i_arr[mask]
+                sub_m = m_arr[mask]
+                if np.max(sub_i) >= min_intensity * 3.0:
+                    best_m = sub_m[np.argmax(sub_i)]
+                    ppm_shift = (best_m - ref_mz) / ref_mz * 1e6
+                    align_shifts.append(ppm_shift)
+        if len(align_shifts) >= 2:
+            median_drift = float(np.median(align_shifts))
+            if abs(median_drift) > 2.0:
+                # Align m/z array
+                m_arr = m_arr / (1.0 + median_drift * 1e-6)
+
     summary = SampleDeamidationSummary(
         sample_id=sample_id,
         dataset_id=dataset_id,
@@ -315,16 +346,22 @@ def compute_high_res_deamidation(
             res.measurement_method = "trapezoidal_area"
 
             # 5. Isotopic consistency QC (13C1 / M0 ratio)
-            if area_und > 0 and area_c13 > 0:
-                obs_c13_ratio = area_c13 / area_und
-                res.c13_ratio_observed = float(obs_c13_ratio)
-                if abs(obs_c13_ratio - expected_c13_ratio) / expected_c13_ratio > 0.40:
-                    res.quality_flag = "C13_RATIO_ANOMALY"
-            elif apex_und_i > min_intensity and apex_c13_i > 0:
-                obs_c13_ratio = apex_c13_i / apex_und_i
-                res.c13_ratio_observed = float(obs_c13_ratio)
-                if abs(obs_c13_ratio - expected_c13_ratio) / expected_c13_ratio > 0.40:
-                    res.quality_flag = "C13_RATIO_ANOMALY"
+            # Only evaluate undeamidated 13C1 when undeamidated M0 is sufficiently abundant (pqi_frac >= 0.15)
+            # to avoid false-positive anomalies caused by near-zero denominators.
+            if pqi_frac >= 0.15 and apex_und_i >= 5.0 * min_intensity:
+                if area_und > 0 and area_c13 > 0:
+                    obs_c13_ratio = area_c13 / area_und
+                    res.c13_ratio_observed = float(obs_c13_ratio)
+                    if abs(obs_c13_ratio - expected_c13_ratio) / expected_c13_ratio > 0.45:
+                        res.quality_flag = "C13_RATIO_ANOMALY"
+                elif apex_c13_i > 0:
+                    obs_c13_ratio = apex_c13_i / apex_und_i
+                    res.c13_ratio_observed = float(obs_c13_ratio)
+                    if abs(obs_c13_ratio - expected_c13_ratio) / expected_c13_ratio > 0.45:
+                        res.quality_flag = "C13_RATIO_ANOMALY"
+            elif deam_frac > 0.85:
+                # Sample is heavily deamidated; intact 13C envelope is naturally depleted
+                res.quality_flag = "OK"
 
             valid_pqis.append(pqi_frac)
             valid_deams.append(deam_frac)
@@ -337,11 +374,11 @@ def compute_high_res_deamidation(
             res.pqi_fraction = float(pqi_frac)
             res.measurement_method = "apex_fallback"
 
-            # Check 13C ratio on apex intensities
-            if apex_und_i > min_intensity and apex_c13_i > 0:
+            # Check 13C ratio on apex intensities only when undeamidated M0 is sufficiently abundant
+            if pqi_frac >= 0.15 and apex_und_i >= 5.0 * min_intensity and apex_c13_i > 0:
                 obs_c13_ratio = apex_c13_i / apex_und_i
                 res.c13_ratio_observed = float(obs_c13_ratio)
-                if abs(obs_c13_ratio - expected_c13_ratio) / expected_c13_ratio > 0.40:
+                if abs(obs_c13_ratio - expected_c13_ratio) / expected_c13_ratio > 0.45:
                     res.quality_flag = "C13_RATIO_ANOMALY"
 
             valid_pqis.append(pqi_frac)

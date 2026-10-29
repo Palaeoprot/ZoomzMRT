@@ -16,14 +16,17 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
+from zoomzmrt.dashboard import generate_interactive_dashboard_html
 from zoomzmrt.deamidation import compute_high_res_deamidation, deamidation_summary_to_dataframe
 from zoomzmrt.fticr_reader import parse_bruker_fticr_d, parse_fticr_mzml
 from zoomzmrt.mrt_reader import KNOWN_LOCK_MASSES, parse_waters_mrt_mzml
+from zoomzmrt.msd_reader import parse_mmass_msd
 from zoomzmrt.parquet_writer import (
     dataset_id_for,
     write_sidecar,
     write_zooms_dataset,
 )
+from zoomzmrt.txt_reader import parse_summed_text_spectrum
 
 DEFAULT_OUTPUT_ROOT = Path.cwd() / "output"
 
@@ -36,12 +39,15 @@ def natural_sort_key(path: Path) -> list[int | str]:
 def detect_instrument_type(files: Sequence[Path]) -> str:
     """Auto-detect instrument analyzer from file stems and directory types."""
     names_str = " ".join(f.name.lower() for f in files)
-    if any(k in names_str for k in ["mrt", "select_series", "glufib", "efib"]):
+    if any(k in names_str for k in ["mrt", "select_series", "glufib", "efib", "kr71", "p47"]):
         return "mrt"
     if any(f.name.lower().endswith(".d") or (f.is_dir() and (f / "analysis.baf").exists()) for f in files):
         return "fticr"
     if any(k in names_str for k in ["fticr", "solarix", "solari_x", "7t", "9.4t", "12t", "15t", "ftms"]):
         return "fticr"
+    if any(f.suffix.lower() in [".txt", ".tsv", ".csv", ".msd"] for f in files):
+        # Default high-res profile spectra to MRT
+        return "mrt"
     raise ValueError(
         "Could not automatically detect instrument type from file names. "
         "Please specify --instrument-type explicitly (e.g. --instrument-type mrt or --instrument-type fticr)."
@@ -54,14 +60,19 @@ def run_pipeline(
     output_root: Path | str = DEFAULT_OUTPUT_ROOT,
     instrument_type: str = "auto",
     instrument_name: str | None = None,
+    species: str = "bos",
     lockmass_name: str = "glufib",
     lockmass_mz: float | None = None,
     lockmass_window_da: float = 0.3,
     centroid: bool = True,
     sn_threshold: float = 3.0,
     base_peak_threshold: float = 10000.0,
+    tolerance_ppm: float = 12.0,
+    precalibrated: bool = False,
     aggregation: str = "mean",
     source_type: str = "external",
+    plate_map: Path | str | None = None,
+    generate_dashboard: bool = True,
     generate_qc_report: bool = True,
 ) -> dict[str, Any]:
     """Execute complete high-resolution ingestion pipeline."""
@@ -79,8 +90,8 @@ def run_pipeline(
         files = [in_path]
     else:
         found = set()
-        # Look for standard mzML / mzXML files
-        for ext in ("*.mzML", "*.mzml", "*.mzXML", "*.mzxml"):
+        # Look for standard mzML / mzXML files and native summed txt / msd
+        for ext in ("*.mzML", "*.mzml", "*.mzXML", "*.mzxml", "*.txt", "*.tsv", "*.csv", "*.msd"):
             for p in in_path.rglob(ext):
                 found.add(p.resolve())
         # Look for Bruker .d directories containing analysis.baf
@@ -90,7 +101,7 @@ def run_pipeline(
         files = sorted(list(found), key=natural_sort_key)
 
     if not files:
-        raise ValueError(f"No .mzML, .mzXML, or Bruker .d spectral files/directories found in {in_path}")
+        raise ValueError(f"No spectral files (.txt, .tsv, .msd, .mzML, .mzXML, or Bruker .d) found in {in_path}")
 
 
     print(f"\n=======================================================")
@@ -138,7 +149,36 @@ def run_pipeline(
     t0 = time.time()
     for idx, f in enumerate(files, 1):
         print(f" [{idx}/{len(files)}] Processing: {f.name}...", end="", flush=True)
-        if resolved_type == "mrt":
+        f_ext = f.suffix.lower()
+
+        if f_ext in [".txt", ".tsv", ".csv"]:
+            rec, qc_txt = parse_summed_text_spectrum(
+                file_path=f,
+                dataset_id=ds_id,
+                instrument_name=inst_display,
+                nominal_resolving_power=nominal_res,
+                source_type=source_type,
+            )
+            records.append(rec)
+            qc_data.append(asdict(qc_txt))
+            if qc_txt.measured_resolving_power:
+                measured_res_list.append(qc_txt.measured_resolving_power)
+            print(f" Done ({rec['n_peaks']} points, base peak: {qc_txt.base_peak_intensity:,.0f})")
+        elif f_ext == ".msd":
+            rec, qc_msd = parse_mmass_msd(
+                file_path=f,
+                dataset_id=ds_id,
+                instrument_name=inst_display,
+                nominal_resolving_power=nominal_res,
+                prefer_peaklist=False,
+                source_type=source_type,
+            )
+            records.append(rec)
+            qc_data.append(asdict(qc_msd))
+            if qc_msd.measured_resolving_power:
+                measured_res_list.append(qc_msd.measured_resolving_power)
+            print(f" Done ({rec['n_peaks']} points, sample: {qc_msd.sample_title})")
+        elif resolved_type == "mrt":
             rec, qc = parse_waters_mrt_mzml(
                 file_path=f,
                 dataset_id=ds_id,
@@ -202,6 +242,7 @@ def run_pipeline(
         "zoomzpeak.measured_resolving_power": str(dataset_measured_res) if dataset_measured_res else "unmeasured",
         "zoomzpeak.lockmass_standard": lockmass_name if resolved_type == "mrt" else "none",
         "zoomzpeak.lockmass_mz": str(lm_mz) if resolved_type == "mrt" else "none",
+        "zoomzpeak.species": species,
     }
 
     n_rows = write_zooms_dataset(
@@ -220,7 +261,9 @@ def run_pipeline(
             int_arr=rec["intensity"],
             sample_id=rec["sample_id"],
             dataset_id=ds_id,
+            species=species,
             resolving_power=rec_res,
+            tolerance_ppm=tolerance_ppm,
         )
         deam_summaries.append(d_summary)
 
@@ -228,6 +271,21 @@ def run_pipeline(
     pqi_csv_path = parquet_dir / "pqi_report.csv"
     pqi_df.to_csv(pqi_csv_path, index=False)
     print(f" PQI Report saved: {pqi_csv_path}")
+
+    # Generate interactive browser dashboard
+    if generate_dashboard:
+        dashboard_html_path = parquet_dir / "dashboard.html"
+        try:
+            generate_interactive_dashboard_html(
+                pqi_report_path=pqi_csv_path,
+                output_html_path=dashboard_html_path,
+                plate_map_path=plate_map,
+                dataset_title=f"{ds_id} — High-Res Deamidation & QC Explorer",
+                spectra_parquet_path=parquet_path,
+            )
+            print(f" Dashboard saved:  {dashboard_html_path}")
+        except Exception as e:
+            print(f" [Notice] Could not auto-generate dashboard: {e}")
 
     # Compute high-res sidecar overrides with full calibration and resolution provenance
     median_shifts = [q.get("lockmass_median_ppm_error") for q in qc_data if q.get("lockmass_median_ppm_error") is not None]
@@ -304,6 +362,11 @@ def main():
     parser.add_argument("--instrument-name", type=str, default=None, help="Custom instrument display name")
     parser.add_argument("--lockmass-name", type=str, default="glufib", help="Standard lockmass name (glufib, leuenk, bradykinin)")
     parser.add_argument("--lockmass-mz", type=float, default=None, help="Custom theoretical lockmass m/z")
+    parser.add_argument("--plate-map", "-m", type=str, default=None, help="Plate map CSV mapping spots to SampleID")
+    parser.add_argument("--no-dashboard", action="store_true", help="Disable HTML dashboard generation")
+    parser.add_argument("--species", "-s", type=str, default="bos", help="Species or clade for marker panel (bos, capra, human)")
+    parser.add_argument("--tolerance-ppm", type=float, default=12.0, help="Deamidation peak search tolerance in ppm")
+    parser.add_argument("--precalibrated", action="store_true", help="Bypass lockmass search for pre-calibrated text/MSD spectra")
     parser.add_argument("--sn-threshold", type=float, default=3.0, help="Signal-to-noise peak threshold")
     parser.add_argument("--aggregation", choices=["mean", "sum", "first", "none"], default="mean", help="Multi-scan aggregation mode for FTICR (mean, sum, first)")
     parser.add_argument("--profile", action="store_true", help="Store continuous profile rather than centroided peaks")
@@ -316,8 +379,13 @@ def main():
         output_root=args.output_root,
         instrument_type=args.instrument_type,
         instrument_name=args.instrument_name,
+        species=args.species,
         lockmass_name=args.lockmass_name,
         lockmass_mz=args.lockmass_mz,
+        tolerance_ppm=args.tolerance_ppm,
+        precalibrated=args.precalibrated,
+        plate_map=args.plate_map,
+        generate_dashboard=not args.no_dashboard,
         centroid=not args.profile,
         sn_threshold=args.sn_threshold,
         aggregation=args.aggregation,

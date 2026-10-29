@@ -1,5 +1,5 @@
 # ZoomzMRT
-**Date & Time:** 2026-09-27 13:20:00 (+02:00)
+**Date & Time:** 2026-10-29 09:12:00 (+01:00)
 
 [![Tests & Quality Gates](https://github.com/Palaeoprot/ZoomzMRT/actions/workflows/tests.yml/badge.svg)](https://github.com/Palaeoprot/ZoomzMRT/actions/workflows/tests.yml)
 
@@ -90,6 +90,25 @@ zoomzmrt path/to/mzml_dir \
     --instrument-type mrt \
     --profile \
     --output-root ./output
+```
+
+### 4. Pre-Summed Text Spectra (MZSummer / mMass MSD)
+```bash
+# Ingest 2-column .txt/.tsv from MZSummer or .msd from mMass with species-specific markers
+zoomzmrt path/to/summed_txt_dir \
+    --dataset-id Reading_COEXIST_Plate47 \
+    --species bos \
+    --precalibrated \
+    --plate-map plate_map.csv \
+    --output-root ./output
+```
+
+### 5. Interactive Collaborator Dashboard
+```bash
+# Open interactive 384-well plate heatmap & deamidation inspector in browser
+zoomzmrt-dashboard ./output/zooms_ms1_maldi/dataset_id=Reading_COEXIST_Plate47/pqi_report.csv \
+    --plate-map plate_map.csv \
+    --open
 ```
 
 ---
