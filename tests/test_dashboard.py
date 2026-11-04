@@ -68,3 +68,4 @@ def test_generate_interactive_dashboard_html(tmp_path: Path):
     assert "Test Dashboard" in content
     assert "ROM_1001" in content
     assert "plotly" in content.lower()
+

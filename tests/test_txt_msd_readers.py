@@ -74,3 +74,4 @@ def test_parse_mmass_msd(tmp_path: Path):
     assert qc.profile_points == 3
     assert qc.peaklist_peaks == 2
     assert abs(qc.base_peak_intensity - 80000.0) < 1e-1
+
